@@ -12,9 +12,9 @@ import flat from 'flat';
 import addVoiceUser from '/imports/api/voice-users/server/modifiers/addVoiceUser';
 
 const COLOR_LIST = [
-  '#7b1fa2', '#6a1b9a', '#4a148c', '#5e35b1', '#512da8', '#4527a0',
-  '#311b92', '#3949ab', '#303f9f', '#283593', '#1a237e', '#1976d2', '#1565c0',
-  '#0d47a1', '#0277bd', '#01579b',
+  '#7b1fa2', '#6a1b9a', '#4a148c', '#5e35b1', '#512da8', '#98f4a6',
+  '#311b92', '#3949ab', '#303f9f', '#669999', '#1a237e', '#1976d2', '#1565c0',
+  '#669999', '#0277bd', '#01579b',
 ];
 
 export default function addUser(meetingId, userData) {

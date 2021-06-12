@@ -30,7 +30,12 @@ const messages = defineMessages({
     id: 'app.statusNotifier.and',
     description: 'used as conjunction word',
   },
+  lowerHandsOkLabel: {
+    id: 'app.meeting.endNotification.ok.label',
+    description: 'text displayed to clear all raised hands',
+  },
 });
+// app.about.confirmLabel
 
 const MAX_AVATAR_COUNT = 3;
 
@@ -176,7 +181,7 @@ class StatusNotifier extends Component {
         <div className={toastStyles.separator} />
         <Button
           className={styles.clearBtn}
-          label={intl.formatMessage(messages.lowerHandsLabel)}
+          label={intl.formatMessage(messages.lowerHandsOkLabel)}
           color="default"
           size="md"
           onClick={() => {

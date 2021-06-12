@@ -32,7 +32,7 @@
   content: "\e932";
 }
 .icon-bbb-unmute:before {
-  content: "\e931";
+  content: "\e962";
 }
 .icon-bbb-file:before {
   content: "\e92e";
@@ -112,7 +112,7 @@
   content: "\e904";
 }
 .icon-bbb-user:before {
-  content: "\e905";
+  content: "\e960";
 }
 .icon-bbb-up_arrow:before {
   content: "\e906";
@@ -124,7 +124,7 @@
   content: "\e90b";
 }
 .icon-bbb-listen:before {
-  content: "\e90c";
+  content: "\e961";
 }
 .icon-bbb-left_arrow:before {
   content: "\e90d";
@@ -220,10 +220,10 @@
   content: "\e93c";
 }
 .icon-bbb-multi_whiteboard:before {
-  content: "\e93d";
+  content: "\e966";
 }
 .icon-bbb-whiteboard:before {
-  content: "\e93e";
+  content: "\e905";
 }
 .icon-bbb-rooms:before {
   content: "\e93f";

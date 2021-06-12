@@ -334,6 +334,8 @@ class ApplicationMenu extends BaseMenu {
           {this.renderAudioFilters()}
           {this.renderPaginationToggle()}
 
+          <hr className={styles.separator} />
+
           <div className={styles.row}>
             <div className={styles.col} aria-hidden="true">
               <div className={styles.formElement}>
@@ -370,7 +372,6 @@ class ApplicationMenu extends BaseMenu {
             </div>
           </div>
 
-          <hr className={styles.separator} />
           <div className={styles.row}>
             <div className={styles.col}>
               <div className={styles.formElement}>

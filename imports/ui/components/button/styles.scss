@@ -127,7 +127,7 @@
   &:active {
     &:focus {
       span:first-of-type::before {
-        border-radius: 50%;
+        border-radius: 5%;
         @extend %highContrastOutline;
         outline-style: solid;
       }

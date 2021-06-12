@@ -15,6 +15,8 @@ import ConnectionStatusButton from '/imports/ui/components/connection-status/but
 import ConnectionStatusService from '/imports/ui/components/connection-status/service';
 import SettingsDropdownContainer from './settings-dropdown/container';
 
+import StreamingIndicator from './streaming-indicator/container';
+
 const intlMessages = defineMessages({
   toggleUserListLabel: {
     id: 'app.navBar.userListToggleBtnLabel',
@@ -122,6 +124,10 @@ class NavBar extends Component {
             <h1 className={styles.presentationTitle}>{presentationTitle}</h1>
 
             <RecordingIndicator
+              mountModal={mountModal}
+              amIModerator={amIModerator}
+            />
+            <StreamingIndicator
               mountModal={mountModal}
               amIModerator={amIModerator}
             />
