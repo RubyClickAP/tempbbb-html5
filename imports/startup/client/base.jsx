@@ -12,7 +12,7 @@ import Users from '/imports/api/users';
 import { Session } from 'meteor/session';
 import { FormattedMessage } from 'react-intl';
 import { Meteor } from 'meteor/meteor';
-import Meetings, { RecordMeetings } from '../../api/meetings';
+import Meetings, { RecordMeetings, StreamMeetings } from '../../api/meetings';
 import AppService from '/imports/ui/components/app/service';
 import Breakouts from '/imports/api/breakouts';
 import AudioService from '/imports/ui/components/audio/service';
@@ -385,6 +385,34 @@ const BaseContainer = withTracker(() => {
             />,
             'error',
             'record',
+          );
+        }
+      }
+    },
+  });
+
+  StreamMeetings.find({ meetingId }, { fields: { streaming: 1 } }).observe({
+    changed: (newDocument, oldDocument) => {
+      if (newDocument) {
+        if (!oldDocument.streaming && newDocument.streaming) {
+          notify(
+            <FormattedMessage
+              id="app.notification.streamingStart"
+              description="Notification for when the streaming starts"
+            />,
+            'success',
+            'stream',
+          );
+        }
+
+        if (oldDocument.streaming && !newDocument.streaming) {
+          notify(
+            <FormattedMessage
+              id="app.notification.streamingPaused"
+              description="Notification for when the streaming stops"
+            />,
+            'error',
+            'stream',
           );
         }
       }

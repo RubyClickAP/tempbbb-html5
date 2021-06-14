@@ -4,7 +4,7 @@ import {
   Match,
 } from 'meteor/check';
 import SanitizeHTML from 'sanitize-html';
-import Meetings, { RecordMeetings } from '/imports/api/meetings';
+import Meetings, { RecordMeetings, StreamMeetings } from '/imports/api/meetings';
 import Logger from '/imports/startup/server/logger';
 import { initPads } from '/imports/api/common/server/etherpad';
 import { addAnnotationsStreamer } from '/imports/api/annotations/server/streamer';
@@ -91,10 +91,16 @@ export default function addMeeting(meeting) {
     systemProps: {
       html5InstanceId: Number,
     },
+    streamProp: Match.ObjectIncluding({
+      allowStartStopStreaming: Boolean,
+      autoStartStreaming: Boolean,
+      stream: Boolean,
+    }),
   });
 
   const {
     recordProp,
+    streamProp,
     ...restProps
   } = meeting;
 
@@ -168,6 +174,7 @@ export default function addMeeting(meeting) {
 
   try {
     const { insertedId, numberAffected } = RecordMeetings.upsert(selector, { meetingId, ...recordProp });
+    //console.log('[[RecordMeetings.upsert]]', insertedId, numberAffected);
 
     if (insertedId) {
       Logger.info(`Added record prop id=${meetingId}`);
@@ -176,6 +183,21 @@ export default function addMeeting(meeting) {
     }
   } catch (err) {
     Logger.error(`Adding record prop to collection: ${err}`);
+  }
+
+  try {
+    const { insertedId, numberAffected } = StreamMeetings.upsert(selector, { meetingId, ...streamProp });
+    console.log('[[StreamdMeetings.upsert]]', insertedId, numberAffected);
+
+    if (insertedId) {
+      Logger.info(`Added stream prop id=${meetingId}`);
+    } else if (numberAffected) {
+      Logger.info(`Upserted stream prop id=${meetingId}`);
+    }
+    const streamObeject = StreamMeetings.findOne({ meetingId });
+    console.log('[[addMeeting.streamObeject]]', streamObeject );
+  } catch (err) {
+    Logger.error(`Adding stream prop to collection: ${err}`);
   }
 
   try {

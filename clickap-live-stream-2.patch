@@ -1,0 +1,1194 @@
+diff --git a/imports/api/meetings/index.js b/imports/api/meetings/index.js
+index cef3033..1a7900e 100644
+--- a/imports/api/meetings/index.js
++++ b/imports/api/meetings/index.js
+@@ -3,6 +3,7 @@ import { Meteor } from 'meteor/meteor';
+ const Meetings = new Mongo.Collection('meetings');
+ const RecordMeetings = new Mongo.Collection('record-meetings');
+ const MeetingTimeRemaining = new Mongo.Collection('meeting-time-remaining');
++const StreamMeetings = new Mongo.Collection('stream-meetings');
+ 
+ if (Meteor.isServer) {
+   // types of queries for the meetings:
+@@ -11,10 +12,12 @@ if (Meteor.isServer) {
+   Meetings._ensureIndex({ meetingId: 1 });
+   RecordMeetings._ensureIndex({ meetingId: 1 });
+   MeetingTimeRemaining._ensureIndex({ meetingId: 1 });
++  StreamMeetings._ensureIndex({ meetingId: 1 });
+ }
+ 
+ export {
+   RecordMeetings,
+   MeetingTimeRemaining,
++  StreamMeetings,
+ };
+ export default Meetings;
+diff --git a/imports/api/meetings/server/eventHandlers.js b/imports/api/meetings/server/eventHandlers.js
+index 041b4ae..a6ff40b 100644
+--- a/imports/api/meetings/server/eventHandlers.js
++++ b/imports/api/meetings/server/eventHandlers.js
+@@ -13,6 +13,9 @@ import handleTimeRemainingUpdate from './handlers/timeRemainingUpdate';
+ import handleChangeWebcamOnlyModerator from './handlers/webcamOnlyModerator';
+ import handleSelectRandomViewer from './handlers/selectRandomViewer';
+ 
++import handleStreamingStatusChange from './handlers/streamingStatusChange';
++import handleStreamingTimerChange from './handlers/streamingTimerChange';
++
+ RedisPubSub.on('MeetingCreatedEvtMsg', handleMeetingCreation);
+ RedisPubSub.on('SyncGetMeetingInfoRespMsg', handleGetAllMeetings);
+ RedisPubSub.on('MeetingEndingEvtMsg', handleMeetingEnd);
+@@ -27,3 +30,6 @@ RedisPubSub.on('GuestPolicyChangedEvtMsg', handleGuestPolicyChanged);
+ RedisPubSub.on('GuestLobbyMessageChangedEvtMsg', handleGuestLobbyMessageChanged);
+ RedisPubSub.on('MeetingTimeRemainingUpdateEvtMsg', handleTimeRemainingUpdate);
+ RedisPubSub.on('SelectRandomViewerRespMsg', handleSelectRandomViewer);
++
++RedisPubSub.on('StreamingStatusChangedEvtMsg', handleStreamingStatusChange);
++RedisPubSub.on('UpdateStreamingTimerEvtMsg', handleStreamingTimerChange);
+\ No newline at end of file
+diff --git a/imports/api/meetings/server/handlers/meetingCreation.js b/imports/api/meetings/server/handlers/meetingCreation.js
+index 024bf29..c9abf60 100644
+--- a/imports/api/meetings/server/handlers/meetingCreation.js
++++ b/imports/api/meetings/server/handlers/meetingCreation.js
+@@ -2,7 +2,16 @@ import { check } from 'meteor/check';
+ import addMeeting from '../modifiers/addMeeting';
+ 
+ export default function handleMeetingCreation({ body }) {
++  console.log('[[body0.prop]]', body.props);
++  body.props.streamProp =  {
++    allowStartStopStreaming: true,
++    autoStartStreaming: false,
++    stream: true,
++  }
++  //body.meetingProp.isBreakout = false;
++
+   const meeting = body.props;
++  console.log('[[body2.prop]]', body.props);
+   const durationInSecods = (meeting.durationProps.duration * 60);
+   meeting.durationProps.timeRemaining = durationInSecods;
+   check(meeting, Object);
+diff --git a/imports/api/meetings/server/handlers/streamingStatusChange.js b/imports/api/meetings/server/handlers/streamingStatusChange.js
+new file mode 100644
+index 0000000..cf24ff3
+--- /dev/null
++++ b/imports/api/meetings/server/handlers/streamingStatusChange.js
+@@ -0,0 +1,26 @@
++import { check } from 'meteor/check';
++import { StreamMeetings } from '/imports/api/meetings';
++import Logger from '/imports/startup/server/logger';
++
++export default function handleStreamingStatusChange({ body }, meetingId) {
++  const { streaming } = body;
++  check(streaming, Boolean);
++
++  const selector = {
++    meetingId,
++  };
++
++  const modifier = {
++    $set: { streaming },
++  };
++
++  try {
++    const { numberAffected } = StreamMeetings.upsert(selector, modifier);
++
++    if (numberAffected) {
++      Logger.info(`Changed meeting stream status id=${meetingId} straming=${streaming}`);
++    }
++  } catch (err) {
++    Logger.error(`Changing stream status: ${err}`);
++  }
++}
+diff --git a/imports/api/meetings/server/handlers/streamingTimerChange.js b/imports/api/meetings/server/handlers/streamingTimerChange.js
+new file mode 100755
+index 0000000..b1883ea
+--- /dev/null
++++ b/imports/api/meetings/server/handlers/streamingTimerChange.js
+@@ -0,0 +1,27 @@
++import { check } from 'meteor/check';
++import { StreamMeetings } from '/imports/api/meetings';
++import Logger from '/imports/startup/server/logger';
++
++export default function handleStreamingTimerChange({ body }, meetingId) {
++  const { time } = body;
++
++  check(meetingId, String);
++
++  check(body, {
++    time: Number,
++  });
++
++  const selector = {
++    meetingId,
++  };
++
++  const modifier = {
++    $set: { time },
++  };
++
++  try {
++    StreamMeetings.upsert(selector, modifier);
++  } catch (err) {
++    Logger.error(`Changing streaming time: ${err}`);
++  }
++}
+diff --git a/imports/api/meetings/server/methods.js b/imports/api/meetings/server/methods.js
+index df2c1e4..0b805b1 100755
+--- a/imports/api/meetings/server/methods.js
++++ b/imports/api/meetings/server/methods.js
+@@ -5,6 +5,7 @@ import transferUser from './methods/transferUser';
+ import toggleLockSettings from './methods/toggleLockSettings';
+ import toggleWebcamsOnlyForModerator from './methods/toggleWebcamsOnlyForModerator';
+ import clearRandomlySelectedUser from './methods/clearRandomlySelectedUser';
++import toggleStreaming from './methods/toggleStreaming';
+ 
+ Meteor.methods({
+   endMeeting,
+@@ -13,4 +14,5 @@ Meteor.methods({
+   transferUser,
+   toggleWebcamsOnlyForModerator,
+   clearRandomlySelectedUser,
++  toggleStreaming,
+ });
+diff --git a/imports/api/meetings/server/methods/toggleStreaming.js b/imports/api/meetings/server/methods/toggleStreaming.js
+new file mode 100644
+index 0000000..2ed801b
+--- /dev/null
++++ b/imports/api/meetings/server/methods/toggleStreaming.js
+@@ -0,0 +1,56 @@
++import Logger from '/imports/startup/server/logger';
++import { Meteor } from 'meteor/meteor';
++import RedisPubSub from '/imports/startup/server/redis';
++import { StreamMeetings } from '/imports/api/meetings';
++import Users from '/imports/api/users';
++import { extractCredentials } from '/imports/api/common/server/helpers';
++import { check } from 'meteor/check';
++
++export default function toggleStreaming() {
++  const REDIS_CONFIG = Meteor.settings.private.redis;
++  const CHANNEL = REDIS_CONFIG.channels.toAkkaApps;
++  const ROLE_MODERATOR = Meteor.settings.public.user.role_moderator;
++  const EVENT_NAME = 'SetStreamingStatusCmdMsg';
++
++  try {
++    const { meetingId, requesterUserId } = extractCredentials(this.userId);
++
++    check(meetingId, String);
++    check(requesterUserId, String);
++
++    let meetingStreamed;
++    let allowedToStream;
++
++    const streamObject = StreamMeetings.findOne({ meetingId });
++    console.log('[[toggleStreaming.js-StreamMeetings.finOne()]]', streamObject);
++
++    if (stramObject != null) {
++      const {
++        allowStartStopStreaming,
++        streaming,
++        stream,
++      } = streamObject;
++
++      meetingStreamed = streaming;
++      allowedToStream = stream && allowStartStopStreaming; // TODO-- remove some day
++    }
++
++    const payload = {
++      streaming: !meetingStreamed,
++      setBy: requesterUserId,
++    };
++
++    const selector = {
++      meetingId,
++      userId: requesterUserId,
++    };
++    const user = Users.findOne(selector);
++
++    if (allowedToStream && !!user && user.role === ROLE_MODERATOR) {
++      Logger.info(`Setting the stream parameter to ${!meetingStreamed} for ${meetingId} by ${requesterUserId}`);
++      RedisPubSub.publishUserMessage(CHANNEL, EVENT_NAME, meetingId, requesterUserId, payload);
++    }
++  } catch (err) {
++    Logger.error(`Exception while invoking method toggleStraming ${err.stack}`);
++  }
++}
+diff --git a/imports/api/meetings/server/modifiers/addMeeting.js b/imports/api/meetings/server/modifiers/addMeeting.js
+index a059fc3..09af306 100755
+--- a/imports/api/meetings/server/modifiers/addMeeting.js
++++ b/imports/api/meetings/server/modifiers/addMeeting.js
+@@ -4,7 +4,7 @@ import {
+   Match,
+ } from 'meteor/check';
+ import SanitizeHTML from 'sanitize-html';
+-import Meetings, { RecordMeetings } from '/imports/api/meetings';
++import Meetings, { RecordMeetings, StreamMeetings } from '/imports/api/meetings';
+ import Logger from '/imports/startup/server/logger';
+ import { initPads } from '/imports/api/common/server/etherpad';
+ import { addAnnotationsStreamer } from '/imports/api/annotations/server/streamer';
+@@ -91,10 +91,16 @@ export default function addMeeting(meeting) {
+     systemProps: {
+       html5InstanceId: Number,
+     },
++    streamProp: Match.ObjectIncluding({
++      allowStartStopStreaming: Boolean,
++      autoStartStreaming: Boolean,
++      stream: Boolean,
++    }),
+   });
+ 
+   const {
+     recordProp,
++    streamProp,
+     ...restProps
+   } = meeting;
+ 
+@@ -168,6 +174,7 @@ export default function addMeeting(meeting) {
+ 
+   try {
+     const { insertedId, numberAffected } = RecordMeetings.upsert(selector, { meetingId, ...recordProp });
++    //console.log('[[RecordMeetings.upsert]]', insertedId, numberAffected);
+ 
+     if (insertedId) {
+       Logger.info(`Added record prop id=${meetingId}`);
+@@ -178,6 +185,21 @@ export default function addMeeting(meeting) {
+     Logger.error(`Adding record prop to collection: ${err}`);
+   }
+ 
++  try {
++    const { insertedId, numberAffected } = StreamMeetings.upsert(selector, { meetingId, ...streamProp });
++    console.log('[[StreamdMeetings.upsert]]', insertedId, numberAffected);
++
++    if (insertedId) {
++      Logger.info(`Added stream prop id=${meetingId}`);
++    } else if (numberAffected) {
++      Logger.info(`Upserted stream prop id=${meetingId}`);
++    }
++    const streamObeject = StreamMeetings.findOne({ meetingId });
++    console.log('[[addMeeting.streamObeject]]', streamObeject );
++  } catch (err) {
++    Logger.error(`Adding stream prop to collection: ${err}`);
++  }
++
+   try {
+     const { insertedId, numberAffected } = Meetings.upsert(selector, modifier);
+ 
+diff --git a/imports/api/meetings/server/modifiers/clearStreamMeeting.js b/imports/api/meetings/server/modifiers/clearStreamMeeting.js
+new file mode 100644
+index 0000000..011438c
+--- /dev/null
++++ b/imports/api/meetings/server/modifiers/clearStreamMeeting.js
+@@ -0,0 +1,14 @@
++import { StreamMeetings } from '/imports/api/meetings';
++import Logger from '/imports/startup/server/logger';
++
++export default function meetingHasEnded(meetingId) {
++  try {
++    const numberAffected = StreamMeetings.remove({ meetingId });
++
++    if (numberAffected) {
++      Logger.info(`Cleared stream prop from meeting with id ${meetingId}`);
++    }
++  } catch (err) {
++    Logger.error(`Error on clearing stream prop from meeting with id ${meetingId}. ${err}`);
++  }
++}
+diff --git a/imports/api/meetings/server/modifiers/meetingHasEnded.js b/imports/api/meetings/server/modifiers/meetingHasEnded.js
+index 33fe3eb..123fc0a 100755
+--- a/imports/api/meetings/server/modifiers/meetingHasEnded.js
++++ b/imports/api/meetings/server/modifiers/meetingHasEnded.js
+@@ -24,6 +24,7 @@ import clearNetworkInformation from '/imports/api/network-information/server/mod
+ import clearMeetingTimeRemaining from '/imports/api/meetings/server/modifiers/clearMeetingTimeRemaining';
+ import clearLocalSettings from '/imports/api/local-settings/server/modifiers/clearLocalSettings';
+ import clearRecordMeeting from './clearRecordMeeting';
++import clearStreamMeeting from './clearStreamMeeting';
+ import clearVoiceCallStates from '/imports/api/voice-call-states/server/modifiers/clearVoiceCallStates';
+ import clearVideoStreams from '/imports/api/video-streams/server/modifiers/clearVideoStreams';
+ import clearAuthTokenValidation from '/imports/api/auth-token-validation/server/modifiers/clearAuthTokenValidation';
+@@ -58,6 +59,7 @@ export default function meetingHasEnded(meetingId) {
+     clearLocalSettings(meetingId);
+     clearMeetingTimeRemaining(meetingId);
+     clearRecordMeeting(meetingId);
++    clearStreamMeeting(meetingId);
+     clearVoiceCallStates(meetingId);
+     clearVideoStreams(meetingId);
+     clearAuthTokenValidation(meetingId);
+diff --git a/imports/api/meetings/server/publishers.js b/imports/api/meetings/server/publishers.js
+index b8af387..3a391c5 100755
+--- a/imports/api/meetings/server/publishers.js
++++ b/imports/api/meetings/server/publishers.js
+@@ -1,5 +1,5 @@
+ import { Meteor } from 'meteor/meteor';
+-import Meetings, { RecordMeetings, MeetingTimeRemaining } from '/imports/api/meetings';
++import Meetings, { RecordMeetings, MeetingTimeRemaining, StreamMeetings } from '/imports/api/meetings';
+ import Users from '/imports/api/users';
+ import Logger from '/imports/startup/server/logger';
+ import AuthTokenValidation, { ValidationStates } from '/imports/api/auth-token-validation';
+@@ -70,6 +70,28 @@ function recordPublish(...args) {
+ 
+ Meteor.publish('record-meetings', recordPublish);
+ 
++// Add Streaming
++function streamMeetings() {
++  const tokenValidation = AuthTokenValidation.findOne({ connectionId: this.connection.id });
++
++  if (!tokenValidation || tokenValidation.validationStatus !== ValidationStates.VALIDATED) {
++    Logger.warn(`Publishing StreamMeetings was requested by unauth connection ${this.connection.id}`);
++    return StreamMeetings.find({ meetingId: '' });
++  }
++
++  const { meetingId, userId } = tokenValidation;
++
++  Logger.debug(`Publishing StreamMeetings for ${meetingId} ${userId}`);
++
++  return StreamMeetings.find({ meetingId });
++}
++function streamPublish(...args) {
++  const boundStreamMeetings = streamMeetings.bind(this);
++  return boundStreamMeetings(...args);
++}
++
++Meteor.publish('stream-meetings', streamPublish);
++
+ function meetingTimeRemaining() {
+   const tokenValidation = AuthTokenValidation.findOne({ connectionId: this.connection.id });
+ 
+diff --git a/imports/startup/client/base.jsx b/imports/startup/client/base.jsx
+index 636d680..7c81eac 100755
+--- a/imports/startup/client/base.jsx
++++ b/imports/startup/client/base.jsx
+@@ -12,7 +12,7 @@ import Users from '/imports/api/users';
+ import { Session } from 'meteor/session';
+ import { FormattedMessage } from 'react-intl';
+ import { Meteor } from 'meteor/meteor';
+-import Meetings, { RecordMeetings } from '../../api/meetings';
++import Meetings, { RecordMeetings, StreamMeetings } from '../../api/meetings';
+ import AppService from '/imports/ui/components/app/service';
+ import Breakouts from '/imports/api/breakouts';
+ import AudioService from '/imports/ui/components/audio/service';
+@@ -391,6 +391,34 @@ const BaseContainer = withTracker(() => {
+     },
+   });
+ 
++  StreamMeetings.find({ meetingId }, { fields: { streaming: 1 } }).observe({
++    changed: (newDocument, oldDocument) => {
++      if (newDocument) {
++        if (!oldDocument.streaming && newDocument.streaming) {
++          notify(
++            <FormattedMessage
++              id="app.notification.streamingStart"
++              description="Notification for when the streaming starts"
++            />,
++            'success',
++            'stream',
++          );
++        }
++
++        if (oldDocument.streaming && !newDocument.streaming) {
++          notify(
++            <FormattedMessage
++              id="app.notification.streamingPaused"
++              description="Notification for when the streaming stops"
++            />,
++            'error',
++            'stream',
++          );
++        }
++      }
++    },
++  });
++
+   if (Session.equals('openPanel', undefined) || Session.equals('subscriptionsReady', true)) {
+     if (!checkedUserSettings) {
+       if (getFromUserSettings('bbb_show_participants_on_login', Meteor.settings.public.layout.showParticipantsOnLogin) && !deviceInfo.isPhone) {
+diff --git a/imports/ui/components/nav-bar/component.jsx b/imports/ui/components/nav-bar/component.jsx
+index 130b704..484c41e 100755
+--- a/imports/ui/components/nav-bar/component.jsx
++++ b/imports/ui/components/nav-bar/component.jsx
+@@ -61,12 +61,16 @@ class NavBar extends Component {
+     const {
+       processOutsideToggleRecording,
+       connectRecordingObserver,
++      processOutsideToggleStreaming,
++      connectStreamingObserver,
+     } = this.props;
+ 
+     if (Meteor.settings.public.allowOutsideCommands.toggleRecording
+       || getFromUserSettings('bbb_outside_toggle_recording', false)) {
+       connectRecordingObserver();
+       window.addEventListener('message', processOutsideToggleRecording);
++      connectStreamingObserver();
++      window.addEventListener('message', processOutsideToggleStreaming);
+     }
+   }
+ 
+@@ -127,6 +131,7 @@ class NavBar extends Component {
+               mountModal={mountModal}
+               amIModerator={amIModerator}
+             />
++
+             <StreamingIndicator
+               mountModal={mountModal}
+               amIModerator={amIModerator}
+diff --git a/imports/ui/components/nav-bar/container.jsx b/imports/ui/components/nav-bar/container.jsx
+index ec92504..a4cc721 100755
+--- a/imports/ui/components/nav-bar/container.jsx
++++ b/imports/ui/components/nav-bar/container.jsx
+@@ -65,7 +65,7 @@ export default withTracker(() => {
+     document.title = titleString;
+   }
+ 
+-  const { connectRecordingObserver, processOutsideToggleRecording } = Service;
++  const { connectRecordingObserver, processOutsideToggleRecording, connectStreamingObserver, processOutsideToggleStreaming  } = Service;
+   const openPanel = Session.get('openPanel');
+   const isExpanded = openPanel !== '';
+   const hasUnreadNotes = NoteService.hasUnreadNotes();
+@@ -78,5 +78,7 @@ export default withTracker(() => {
+     meetingId,
+     hasUnreadNotes,
+     presentationTitle: meetingTitle,
++    processOutsideToggleStreaming,
++    connectStreamingObserver,
+   };
+ })(NavBarContainer);
+diff --git a/imports/ui/components/nav-bar/service.js b/imports/ui/components/nav-bar/service.js
+index 6b36c1d..eec51a6 100755
+--- a/imports/ui/components/nav-bar/service.js
++++ b/imports/ui/components/nav-bar/service.js
+@@ -1,6 +1,6 @@
+ import Auth from '/imports/ui/services/auth';
+ import { makeCall } from '/imports/ui/services/api';
+-import RecordMeetings from '/imports/api/meetings';
++import { RecordMeetings, StreamMeetings}  from '/imports/api/meetings';
+ 
+ const processOutsideToggleRecording = (e) => {
+   switch (e.data) {
+@@ -25,7 +25,34 @@ const connectRecordingObserver = () => {
+   this.window.parent.postMessage({ response: 'readyToConnect' }, '*');
+ };
+ 
++const processOutsideToggleStreaming = (e) => {
++  switch (e.data) {
++    case 'c_stream': {
++      makeCall('toggleRecording');
++      break;
++    }
++    case 'c_streaming_status': {
++      const streamingState = (StreamMeetings.findOne({ meetingId: Auth.meetingID })).streaming;
++      console.log('[[service.js-processOutsideToggleStreaming]]', streamingState);
++      //const streamingState = (RecordMeetings.findOne({ meetingId: Auth.meetingID })).recording;
++      const streamingMessage = streamingState ? 'streamingStarted' : 'streamingStopped';
++      this.window.parent.postMessage({ response: streamingMessage }, '*');
++      break;
++    }
++    default: {
++      // console.log(e.data);
++    }
++  }
++};
++
++const connectStreamingObserver = () => {
++  // notify on load complete
++  this.window.parent.postMessage({ response: 'readyToConnect' }, '*');
++};
++
+ export default {
+   connectRecordingObserver: () => connectRecordingObserver(),
+   processOutsideToggleRecording: arg => processOutsideToggleRecording(arg),
++  connectStreamingObserver: () => connectStreamingObserver(),
++  processOutsideToggleStreaming: arg => processOutsideToggleStreaming(arg),
+ };
+diff --git a/imports/ui/components/nav-bar/streaming-indicator/component.jsx b/imports/ui/components/nav-bar/streaming-indicator/component.jsx
+new file mode 100755
+index 0000000..daa30d4
+--- /dev/null
++++ b/imports/ui/components/nav-bar/streaming-indicator/component.jsx
+@@ -0,0 +1,243 @@
++import React, { PureComponent, Fragment } from 'react';
++//import RecordingContainer from '/imports/ui/components/recording/container';
++import StreamingContainer from '/imports/ui/components/streaming/container';
++import humanizeSeconds from '/imports/utils/humanizeSeconds';
++import Tooltip from '/imports/ui/components/tooltip/component';
++import PropTypes from 'prop-types';
++import { defineMessages, injectIntl } from 'react-intl';
++import cx from 'classnames';
++import { styles } from './styles';
++
++const intlMessages = defineMessages({
++  notificationStreamingStart: {
++    id: 'app.notification.streamingStart',
++    description: 'Notification for when the streaming starts',
++  },
++  notificationStreamingStop: {
++    id: 'app.notification.streamingStop',
++    description: 'Notification for when the streaming stops',
++  },
++  streamingAriaLabel: {
++    id: 'app.notification.streamingAriaLabel',
++    description: 'Notification for when the streaming stops',
++  },
++  startTitle: {
++    id: 'app.streaming.startTitle',
++    description: 'start streaming title',
++  },
++  stopTitle: {
++    id: 'app.streaming.stopTitle',
++    description: 'stop streaming title',
++  },
++  resumeTitle: {
++    id: 'app.streaming.resumeTitle',
++    description: 'resume streaming title',
++  },
++  streamingIndicatorOn: {
++    id: 'app.navBar.streaming.on',
++    description: 'label for indicator when the session is being live-stream',
++  },
++  streamingIndicatorOff: {
++    id: 'app.navBar.streaming.off',
++    description: 'label for indicator when the session is not being live-stream',
++  },
++  emptyAudioBrdige: {
++    id: 'app.navBar.emptyAudioBrdige',
++    description: 'message for notification when streaming starts with no users in audio bridge',
++  },
++});
++
++const propTypes = {
++  intl: PropTypes.object.isRequired,
++  amIModerator: PropTypes.bool,
++  stream: PropTypes.bool,
++  streaming: PropTypes.bool,
++  mountModal: PropTypes.func.isRequired,
++  time: PropTypes.number,
++  allowStartStopStreaming: PropTypes.bool.isRequired,
++};
++
++const defaultProps = {
++  amIModerator: false,
++  stream: false,
++  streaming: false,
++  time: 0,
++};
++
++class StreamingIndicator extends PureComponent {
++  constructor(props) {
++    super(props);
++    console.log('[[[[[streaming-indicator]]]]');
++    console.log('props: ', props);
++    this.state = {
++      time: (props.time ? props.time : 0),
++    };
++
++    this.incrementTime = this.incrementTime.bind(this);
++  }
++
++  componentDidUpdate() {
++    const { streaming } = this.props;
++    console.log('[[[[[streaming-indicator.componentDidUpdate]]]]');
++    console.log('props: ', this.props);
++    if (!streaming) {
++      clearInterval(this.interval);
++      this.interval = null;
++    } else if (this.interval === null) {
++      this.interval = setInterval(this.incrementTime, 1000);
++    }
++  }
++
++  incrementTime() {
++    const { time: propTime } = this.props;
++    const { time } = this.state;
++
++    if (propTime > time) {
++      this.setState({ time: propTime + 1 });
++    } else {
++      this.setState({ time: time + 1 });
++    }
++  }
++
++  render() {
++    const {
++      stream,
++      streaming,
++      mountModal,
++      amIModerator,
++      intl,
++      allowStartStopStreaming,
++      notify,
++      micUser,
++      isPhone,
++    } = this.props;
++
++    const { time } = this.state;
++    if (!stream) return null;
++
++    if (!this.interval && streaming) {
++      this.interval = setInterval(this.incrementTime, 1000);
++    }
++
++    const title = intl.formatMessage(streaming ? intlMessages.streamingIndicatorOn
++      : intlMessages.streamingIndicatorOff);
++
++    let recordTitle = '';
++
++    if (!isPhone) {
++      if (!streaming) {
++        recordTitle = time > 0
++          ? intl.formatMessage(intlMessages.resumeTitle)
++          : intl.formatMessage(intlMessages.startTitle);
++      } else {
++        recordTitle = intl.formatMessage(intlMessages.stopTitle);
++      }
++    }
++
++    const streamingToggle = () => {
++      if (!micUser && !streaming) {
++        notify(intl.formatMessage(intlMessages.emptyAudioBrdige), 'error', 'warning');
++      }
++      mountModal(<StreamingContainer amIModerator={amIModerator} />);
++      document.activeElement.blur();
++    };
++
++    const streamingIndicatorIcon = (
++      <span data-test="mainWhiteboard" className={cx(styles.streamingIndicatorIcon, (!isPhone || streaming) && styles.presentationTitleMargin)}>
++        <svg xmlns="http://www.w3.org/2000/svg" height="100%" version="1" viewBox="0 0 20 20">
++          <g stroke="#FFF" fill="#FFF" strokeLinecap="square">
++            <circle
++              fill="none"
++              strokeWidth="1"
++              r="9"
++              cx="10"
++              cy="10"
++            />
++            <circle
++              stroke={streaming ? '#F00' : '#FFF'}
++              fill={streaming ? '#F00' : '#FFF'}
++              r="4"
++              cx="10"
++              cy="10"
++            />
++          </g>
++        </svg>
++      </span>
++    );
++
++    //const showButton = amIModerator && allowStartStopStreaming;
++    const showButton = true;
++
++    const streamMeetingButton = (
++      <div
++        aria-label={title}
++        className={streaming ? styles.streamingControlON : styles.streamingControlOFF}
++        role="button"
++        tabIndex={0}
++        key="streaming-toggle"
++        onClick={streamingToggle}
++        onKeyPress={streamingToggle}
++      >
++        {streamingIndicatorIcon}
++
++        <div className={styles.presentationTitle}>
++          {streaming
++            ? (
++              <span className={styles.visuallyHidden}>
++                {`${intl.formatMessage(intlMessages.streamingAriaLabel)} ${humanizeSeconds(time)}`}
++              </span>
++            ) : null
++          }
++          {streaming
++            ? <span aria-hidden>{humanizeSeconds(time)}</span> : <span>{recordTitle}</span>}
++        </div>
++      </div>
++    );
++
++    const recordMeetingButtonWithTooltip = (
++      <Tooltip title={intl.formatMessage(intlMessages.stopTitle)}>
++        {streamMeetingButton}
++      </Tooltip>
++    );
++
++    const streamingButton = streaming ? recordMeetingButtonWithTooltip : streamMeetingButton;
++
++    return (
++      <Fragment>
++        {stream
++          ? <span className={styles.presentationTitleSeparator} aria-hidden>|</span>
++          : null}
++        <div className={styles.streamingIndicator}>
++          {showButton
++            ? streamingButton
++            : null}
++
++          {showButton ? null : (
++            <Tooltip
++              title={`${intl.formatMessage(streaming
++                ? intlMessages.notificationStreamingStart
++                : intlMessages.notificationStreamingStop)}`}
++            >
++              <div
++                aria-label={`${intl.formatMessage(streaming
++                  ? intlMessages.notificationStreamingStart
++                  : intlMessages.notificationStreamingStop)}`}
++                className={styles.recordingStatusViewOnly}
++              >
++                {streamingIndicatorIcon}
++
++                {streaming
++                  ? <div className={styles.presentationTitle}>{humanizeSeconds(time)}</div> : null}
++              </div>
++            </Tooltip>
++          )}
++        </div>
++      </Fragment>
++    );
++  }
++}
++
++StreamingIndicator.propTypes = propTypes;
++StreamingIndicator.defaultProps = defaultProps;
++
++export default injectIntl(StreamingIndicator);
+diff --git a/imports/ui/components/nav-bar/streaming-indicator/container.jsx b/imports/ui/components/nav-bar/streaming-indicator/container.jsx
+new file mode 100644
+index 0000000..e2a2155
+--- /dev/null
++++ b/imports/ui/components/nav-bar/streaming-indicator/container.jsx
+@@ -0,0 +1,49 @@
++import React from 'react';
++import { withTracker } from 'meteor/react-meteor-data';
++import { StreamMeetings } from '/imports/api/meetings';
++import Auth from '/imports/ui/services/auth';
++import { notify } from '/imports/ui/services/notification';
++import VoiceUsers from '/imports/api/voice-users';
++import StreamIndicator from './component';
++import deviceInfo from '/imports/utils/deviceInfo';
++
++const StreamIndicatorContainer = props => (
++  <StreamIndicator {...props} />
++);
++
++export default withTracker(() => {
++  const meetingId = Auth.meetingID;
++  const streamObeject = StreamMeetings.findOne({ meetingId });
++  console.log('[[StreamIndicatorContainer.withTracker]]', this.props );
++  console.log('[[streamObeject]]', streamObeject);
++
++  StreamMeetings.find({ meetingId: Auth.meetingID }, { fields: { streaming: 1 } }).observeChanges({
++    changed: (id, fields) => {
++      if (fields && fields.streaming) {
++        this.window.parent.postMessage({ response: 'streamingStarted' }, '*');
++      }
++
++      if (fields && !fields.streaming) {
++        this.window.parent.postMessage({ response: 'streamingStopped' }, '*');
++      }
++    },
++  });
++
++  const micUser = VoiceUsers.findOne({ meetingId, joined: true, listenOnly: false }, {
++    fields: {
++      joined: 1,
++    },
++  });
++
++  // allowStartStopStreaming: !!(streamObeject && streamObeject.allowStartStopStreaming),
++  return {
++    allowStartStopStreaming: !!(streamObeject && streamObeject.allowStartStopStreaming),
++    autoStartStreaming: streamObeject && streamObeject.autoStartStreaming,
++    stream: streamObeject && streamObeject.stream,
++    streaming: streamObeject && streamObeject.streaming,
++    time: streamObeject && streamObeject.time,
++    notify,
++    micUser,
++    isPhone: deviceInfo.isPhone,
++  };
++})(StreamIndicatorContainer);
+diff --git a/imports/ui/components/nav-bar/streaming-indicator/styles.scss b/imports/ui/components/nav-bar/streaming-indicator/styles.scss
+new file mode 100755
+index 0000000..611ac62
+--- /dev/null
++++ b/imports/ui/components/nav-bar/streaming-indicator/styles.scss
+@@ -0,0 +1,121 @@
++@import '/imports/ui/stylesheets/mixins/_indicators';
++@import "/imports/ui/stylesheets/variables/placeholders";
++
++.visuallyHidden {
++  position: absolute;
++  overflow: hidden;
++  clip: rect(0 0 0 0);
++  height: 1px; width: 1px;
++  margin: -1px; padding: 0; border: 0;
++}
++
++%streamingControl {
++  display: flex;
++  border-radius: 2em 2em;
++
++  span {
++    border: none;
++    box-shadow: none;
++    background-color: transparent !important;
++    color: var(--color-white) !important;
++  }
++
++  &:hover {
++    color: var(--color-white) !important;
++    cursor: pointer;
++  }
++
++  &:focus {
++    outline: none;
++    box-shadow: 0 0 0 var(--border-size) var(--color-primary);
++  }
++}
++
++.streamingControlON {
++  @extend %streamingControl;
++
++  padding: 5px;
++  background-color: var(--color-primary);
++  border: var(--border-size-large) solid var(--color-primary);
++
++  &:focus {
++    background-clip: padding-box;
++    border: var(--border-size-large) solid transparent;
++  }
++}
++
++.streamingControlOFF {
++  @extend %streamingControl;
++
++  padding: 7px;
++  border: var(--border-size-small) solid var(--color-white);
++  
++  &:focus {
++    padding: 5px;
++    border: var(--border-size-large) solid var(--color-white);
++    box-shadow: none;
++  }
++}
++
++.presentationTitle {
++  display: flex;
++  flex-direction: column;
++  justify-content: center;
++  font-weight: 200;
++  color: var(--color-white);
++  font-size: var(--font-size-base);
++  padding: 0;
++  margin-right: 0;
++  white-space: nowrap;
++  overflow: hidden;
++  text-overflow: ellipsis;
++  max-width: 30vw;
++
++  [dir="rtl"]  & {
++    margin-left: 0;
++    margin-right: var(--sm-padding-x);
++  }
++
++  > [class^="icon-bbb-"] {
++    font-size: 75%;
++  }
++
++  span {
++    vertical-align: middle;
++  }
++}
++
++.presentationTitleMargin {
++  [dir="ltr"] & {
++    margin-right: var(--sm-padding-x);
++  }
++}
++
++.recordingStatusViewOnly {
++  display: flex;
++}
++
++.streamingIndicatorIcon {
++  width: var(--font-size-large);
++  height: var(--font-size-large);
++  font-size: var(--font-size-base);
++}
++
++.streamingIndicator {
++  &:hover {
++    @extend %highContrastOutline;
++  }
++
++  &:active,
++  &:focus,
++  &:focus-within {
++    @extend %highContrastOutline;
++    outline-style: solid;
++  }
++}
++
++.presentationTitleSeparator {
++  color: var(--color-gray);
++  font-size: var(--font-size-base);
++  margin: 0 1rem;
++}
+\ No newline at end of file
+diff --git a/imports/ui/components/streaming/component.jsx b/imports/ui/components/streaming/component.jsx
+new file mode 100755
+index 0000000..5c8a45e
+--- /dev/null
++++ b/imports/ui/components/streaming/component.jsx
+@@ -0,0 +1,119 @@
++import React, { PureComponent } from 'react';
++import PropTypes from 'prop-types';
++import { defineMessages, injectIntl } from 'react-intl';
++import Button from '/imports/ui/components/button/component';
++import Modal from '/imports/ui/components/modal/simple/component';
++import { styles } from './styles';
++
++const intlMessages = defineMessages({
++  startTitle: {
++    id: 'app.streaming.startTitle',
++    description: 'start streaming title',
++  },
++  stopTitle: {
++    id: 'app.streaming.stopTitle',
++    description: 'stop streaming title',
++  },
++  resumeTitle: {
++    id: 'app.streaming.resumeTitle',
++    description: 'resume streaming title',
++  },
++  startDescription: {
++    id: 'app.streaming.startDescription',
++    description: 'start streaming description',
++  },
++  stopDescription: {
++    id: 'app.streaming.stopDescription',
++    description: 'stop streaming description',
++  },
++  yesLabel: {
++    id: 'app.audioModal.yes',
++    description: 'label for yes button',
++  },
++  noLabel: {
++    id: 'app.audioModal.no',
++    description: 'label for no button',
++  },
++});
++
++const propTypes = {
++  intl: PropTypes.object.isRequired,
++  closeModal: PropTypes.func.isRequired,
++  toggleStreaming: PropTypes.func.isRequired,
++  streamingTime: PropTypes.number,
++  streamingStatus: PropTypes.bool,
++  amIModerator: PropTypes.bool,
++  isMeteorConnected: PropTypes.bool.isRequired,
++};
++
++const defaultProps = {
++  streamingTime: -1,
++  streamingStatus: false,
++  amIModerator: false,
++};
++
++class StreamingComponent extends PureComponent {
++  render() {
++    const {
++      intl,
++      streamingStatus,
++      streamingTime,
++      amIModerator,
++      closeModal,
++      toggleStreaming,
++      isMeteorConnected,
++    } = this.props;
++
++    let title;
++
++    if (!streamingStatus) {
++      title = streamingTime >= 0 ? intl.formatMessage(intlMessages.resumeTitle)
++        : intl.formatMessage(intlMessages.startTitle);
++    } else {
++      title = intl.formatMessage(intlMessages.stopTitle);
++    }
++
++    if (!amIModerator) return null;
++    return (
++      <Modal
++        overlayClassName={styles.overlay}
++        className={styles.modal}
++        onRequestClose={closeModal}
++        hideBorder
++        contentLabel={title}
++      >
++        <div className={styles.container}>
++          <div className={styles.header}>
++            <div className={styles.title}>
++              {title}
++            </div>
++          </div>
++          <div className={styles.description}>
++            {`${intl.formatMessage(!streamingStatus
++              ? intlMessages.startDescription
++              : intlMessages.stopDescription)}`}
++          </div>
++          <div className={styles.footer}>
++            <Button
++              color="primary"
++              className={styles.button}
++              disabled={!isMeteorConnected}
++              label={intl.formatMessage(intlMessages.yesLabel)}
++              onClick={toggleStreaming}
++            />
++            <Button
++              label={intl.formatMessage(intlMessages.noLabel)}
++              className={styles.button}
++              onClick={closeModal}
++            />
++          </div>
++        </div>
++      </Modal>
++    );
++  }
++}
++
++StreamingComponent.propTypes = propTypes;
++StreamingComponent.defaultProps = defaultProps;
++
++export default injectIntl(StreamingComponent);
+diff --git a/imports/ui/components/streaming/container.jsx b/imports/ui/components/streaming/container.jsx
+new file mode 100755
+index 0000000..797e13d
+--- /dev/null
++++ b/imports/ui/components/streaming/container.jsx
+@@ -0,0 +1,27 @@
++import React from 'react';
++import { withTracker } from 'meteor/react-meteor-data';
++import { withModalMounter } from '/imports/ui/components/modal/service';
++import { makeCall } from '/imports/ui/services/api';
++import { StreamMeetings } from '/imports/api/meetings';
++import Auth from '/imports/ui/services/auth';
++import StreamingComponent from './component';
++
++const StreamingContainer = props => <StreamingComponent {...props} />;
++
++export default withModalMounter(withTracker(({ mountModal }) => {
++  const { streaming, time } = StreamMeetings.findOne({ meetingId: Auth.meetingID });
++
++  return ({
++    closeModal: () => mountModal(null),
++
++    toggleStreaming: () => {
++      makeCall('toggleStreaming');
++      mountModal(null);
++    },
++
++    streamingStatus: streaming,
++    streamingTime: time,
++    isMeteorConnected: Meteor.status().connected,
++
++  });
++})(StreamingContainer));
+diff --git a/imports/ui/components/streaming/styles.scss b/imports/ui/components/streaming/styles.scss
+new file mode 100755
+index 0000000..08277f9
+--- /dev/null
++++ b/imports/ui/components/streaming/styles.scss
+@@ -0,0 +1,56 @@
++@import "/imports/ui/components/modal/simple/styles";
++
++.title {
++  color: var(--color-gray-dark);
++  font-weight: var(--headings-font-weight);
++  font-size: var(--jumbo-padding-y);
++}
++
++.container {
++  display: flex;
++  align-items: center;
++  flex-direction: column;
++  padding: 0;
++  margin-top: 0;
++  margin-right: var(--description-margin);
++  margin-left: var(--description-margin);
++  margin-bottom: var(--lg-padding-x);
++}
++
++.footer {
++  display:flex;
++}
++
++.button {
++  padding-right: var(--jumbo-padding-y);
++  padding-left: var(--jumbo-padding-y);
++  margin: 0 var(--sm-padding-x) 0 0;
++
++  [dir="rtl"] & {
++    margin: 0 0 0 var(--sm-padding-x);
++  }
++}
++
++.description {
++  text-align: center;
++  line-height: var(--line-height-base);
++  color: var(--color-gray);
++  margin-bottom: var(--jumbo-padding-y)
++}
++
++.modal {
++  @extend .modal;
++  padding: var(--sm-padding-y);
++}
++
++.overlay {
++  @extend .overlay;
++}
++
++.header {
++  margin: 0;
++  padding: 0;
++  border: none;
++  line-height: var(--title-position-left);
++  margin-bottom: var(--lg-padding-y);
++}
+diff --git a/imports/ui/components/subscriptions/component.jsx b/imports/ui/components/subscriptions/component.jsx
+index d265b01..bab1fb4 100755
+--- a/imports/ui/components/subscriptions/component.jsx
++++ b/imports/ui/components/subscriptions/component.jsx
+@@ -18,7 +18,7 @@ const SUBSCRIPTIONS = [
+   'users', 'meetings', 'polls', 'presentations', 'slides', 'slide-positions', 'captions',
+   'voiceUsers', 'whiteboard-multi-user', 'screenshare', 'group-chat',
+   'presentation-pods', 'users-settings', 'guestUser', 'users-infos', 'note', 'meeting-time-remaining',
+-  'network-information', 'local-settings', 'users-typing', 'record-meetings', 'video-streams',
++  'network-information', 'local-settings', 'users-typing', 'record-meetings', 'stream-meetings', 'video-streams',
+   'connection-status', 'voice-call-states',
+ ];
+ 
+diff --git a/public/locales/en.json b/public/locales/en.json
+index b50b4bf..6109d50 100755
+--- a/public/locales/en.json
++++ b/public/locales/en.json
+@@ -816,9 +816,11 @@
+     "app.notification.streamingStart": "Start",
+     "app.notification.streamingStop": "Stop",
+     "app.notification.streamingAriaLabel": "streamingAriaLabel",
+-    "app.streaming.startTitle": "startTitle",
+-    "app.streaming.stopTitle": "stopTitle",
++    "app.streaming.startTitle": "Start Live Streaming",
++    "app.streaming.stopTitle": "Stop Live Streaming",
+     "app.streaming.resumeTitle": "resumeTitle",
++    "app.streaming.startDescription": "You can select the record button again later to pause the recording.",
++    "app.streaming.stopDescription": "Are you sure you want to pause the recording? You can resume by selecting the record button again.",
+     "app.navBar.streaming.on": "On",
+     "app.navBar.streaming.off": "Off"
+ }
+diff --git a/public/locales/zh_TW.json b/public/locales/zh_TW.json
+index 22afe5e..842bdbe 100644
+--- a/public/locales/zh_TW.json
++++ b/public/locales/zh_TW.json
+@@ -822,6 +822,8 @@
+     "app.streaming.startTitle": "開始直播",
+     "app.streaming.stopTitle": "暫停直播",
+     "app.streaming.resumeTitle": "繼續直播",
++    "app.streaming.startDescription": "You can select the record button again later to pause the recording.",
++    "app.streaming.stopDescription": "Are you sure you want to pause the recording? You can resume by selecting the record button again.",
+     "app.navBar.streaming.on": "直播中",
+     "app.navBar.streaming.off": "Off"
+ }

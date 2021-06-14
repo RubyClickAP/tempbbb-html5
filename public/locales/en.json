@@ -816,9 +816,11 @@
     "app.notification.streamingStart": "Start",
     "app.notification.streamingStop": "Stop",
     "app.notification.streamingAriaLabel": "streamingAriaLabel",
-    "app.streaming.startTitle": "startTitle",
-    "app.streaming.stopTitle": "stopTitle",
+    "app.streaming.startTitle": "Start Live Streaming",
+    "app.streaming.stopTitle": "Stop Live Streaming",
     "app.streaming.resumeTitle": "resumeTitle",
+    "app.streaming.startDescription": "You can select the record button again later to pause the recording.",
+    "app.streaming.stopDescription": "Are you sure you want to pause the recording? You can resume by selecting the record button again.",
     "app.navBar.streaming.on": "On",
     "app.navBar.streaming.off": "Off"
 }

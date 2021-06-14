@@ -1,5 +1,5 @@
 import { Meteor } from 'meteor/meteor';
-import Meetings, { RecordMeetings, MeetingTimeRemaining } from '/imports/api/meetings';
+import Meetings, { RecordMeetings, MeetingTimeRemaining, StreamMeetings } from '/imports/api/meetings';
 import Users from '/imports/api/users';
 import Logger from '/imports/startup/server/logger';
 import AuthTokenValidation, { ValidationStates } from '/imports/api/auth-token-validation';
@@ -69,6 +69,28 @@ function recordPublish(...args) {
 }
 
 Meteor.publish('record-meetings', recordPublish);
+
+// Add Streaming
+function streamMeetings() {
+  const tokenValidation = AuthTokenValidation.findOne({ connectionId: this.connection.id });
+
+  if (!tokenValidation || tokenValidation.validationStatus !== ValidationStates.VALIDATED) {
+    Logger.warn(`Publishing StreamMeetings was requested by unauth connection ${this.connection.id}`);
+    return StreamMeetings.find({ meetingId: '' });
+  }
+
+  const { meetingId, userId } = tokenValidation;
+
+  Logger.debug(`Publishing StreamMeetings for ${meetingId} ${userId}`);
+
+  return StreamMeetings.find({ meetingId });
+}
+function streamPublish(...args) {
+  const boundStreamMeetings = streamMeetings.bind(this);
+  return boundStreamMeetings(...args);
+}
+
+Meteor.publish('stream-meetings', streamPublish);
 
 function meetingTimeRemaining() {
   const tokenValidation = AuthTokenValidation.findOne({ connectionId: this.connection.id });

@@ -822,6 +822,8 @@
     "app.streaming.startTitle": "開始直播",
     "app.streaming.stopTitle": "暫停直播",
     "app.streaming.resumeTitle": "繼續直播",
+    "app.streaming.startDescription": "You can select the record button again later to pause the recording.",
+    "app.streaming.stopDescription": "Are you sure you want to pause the recording? You can resume by selecting the record button again.",
     "app.navBar.streaming.on": "直播中",
     "app.navBar.streaming.off": "Off"
 }

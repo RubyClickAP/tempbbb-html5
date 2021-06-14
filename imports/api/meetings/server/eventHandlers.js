@@ -13,6 +13,9 @@ import handleTimeRemainingUpdate from './handlers/timeRemainingUpdate';
 import handleChangeWebcamOnlyModerator from './handlers/webcamOnlyModerator';
 import handleSelectRandomViewer from './handlers/selectRandomViewer';
 
+import handleStreamingStatusChange from './handlers/streamingStatusChange';
+import handleStreamingTimerChange from './handlers/streamingTimerChange';
+
 RedisPubSub.on('MeetingCreatedEvtMsg', handleMeetingCreation);
 RedisPubSub.on('SyncGetMeetingInfoRespMsg', handleGetAllMeetings);
 RedisPubSub.on('MeetingEndingEvtMsg', handleMeetingEnd);
@@ -27,3 +30,6 @@ RedisPubSub.on('GuestPolicyChangedEvtMsg', handleGuestPolicyChanged);
 RedisPubSub.on('GuestLobbyMessageChangedEvtMsg', handleGuestLobbyMessageChanged);
 RedisPubSub.on('MeetingTimeRemainingUpdateEvtMsg', handleTimeRemainingUpdate);
 RedisPubSub.on('SelectRandomViewerRespMsg', handleSelectRandomViewer);
+
+RedisPubSub.on('StreamingStatusChangedEvtMsg', handleStreamingStatusChange);
+RedisPubSub.on('UpdateStreamingTimerEvtMsg', handleStreamingTimerChange);

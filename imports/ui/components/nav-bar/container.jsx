@@ -65,7 +65,7 @@ export default withTracker(() => {
     document.title = titleString;
   }
 
-  const { connectRecordingObserver, processOutsideToggleRecording } = Service;
+  const { connectRecordingObserver, processOutsideToggleRecording, connectStreamingObserver, processOutsideToggleStreaming  } = Service;
   const openPanel = Session.get('openPanel');
   const isExpanded = openPanel !== '';
   const hasUnreadNotes = NoteService.hasUnreadNotes();
@@ -78,5 +78,7 @@ export default withTracker(() => {
     meetingId,
     hasUnreadNotes,
     presentationTitle: meetingTitle,
+    processOutsideToggleStreaming,
+    connectStreamingObserver,
   };
 })(NavBarContainer);

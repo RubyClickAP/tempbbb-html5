@@ -61,12 +61,16 @@ class NavBar extends Component {
     const {
       processOutsideToggleRecording,
       connectRecordingObserver,
+      processOutsideToggleStreaming,
+      connectStreamingObserver,
     } = this.props;
 
     if (Meteor.settings.public.allowOutsideCommands.toggleRecording
       || getFromUserSettings('bbb_outside_toggle_recording', false)) {
       connectRecordingObserver();
       window.addEventListener('message', processOutsideToggleRecording);
+      connectStreamingObserver();
+      window.addEventListener('message', processOutsideToggleStreaming);
     }
   }
 
@@ -127,6 +131,7 @@ class NavBar extends Component {
               mountModal={mountModal}
               amIModerator={amIModerator}
             />
+
             <StreamingIndicator
               mountModal={mountModal}
               amIModerator={amIModerator}
